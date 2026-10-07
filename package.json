@@ -1,0 +1,21 @@
+{
+  "dependencies": {
+    "bun": "^1.4.2"
+  },
+  "allowScripts": {
+    "bun@1.4.2": true
+  },
+  "scripts": {
+    "start" : "bun run src/index.ts"
+  },
+  "name": "tsk-ts",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  }
+}
