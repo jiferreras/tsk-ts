@@ -1,156 +1,156 @@
 import chalk from 'chalk';
 import readline from 'readline';
+import LineEdit from './lineEditTest';
 
 enum Mode {
     Select = 0,
-    Move,
     Edit
 }
 
-const tasks = [
+interface Task {
+    id: string;
+    title: string;
+    status: string;
+}
+
+interface InteractiveMode {
+    renderTasks: (t: Task, selected: boolean) => void;
+    renderStatus: () => void;
+    onKeypress: (str: string, key: any) => void;
+};
+
+const tasks: Task[] = [
     { id: '1', title: 'Fix login', status: ' ' },
-    { id: '2', title: 'Update docs', status: '-' },
+    { id: '2', title: 'Update docs', status: ' ' },
     { id: '3', title: 'Refactor auth', status: 'x' },
 ];
 
 let selected = 0;
-let editBuffer = '';
-let mode: Mode = Mode.Select;
+let currentMode: Mode = Mode.Select;
+const modes: InteractiveMode[] = [];
 
-const render = () => {
-    console.clear();
-    console.log('\nTasks:');
-    switch (mode) {
-        case Mode.Select:
-            tasks.forEach((t, i) => {
-                const line = `[${t.status}] ${t.title}`;
-                console.log(
-                    (i === selected ? '▶ ' : '  ')
-                    + line
-                );
-            });
-            console.log('');
-            console.log(chalk.bgCyan.black.bold('SELECT ↑↓=Cursor m=Move Enter=Select q=Quit'));
-            break;
-        case Mode.Move:
-            tasks.forEach((t, i) => {
-                const line = `[${t.status}] ${t.title}`;
-                console.log(
-                    i === selected ?
-                        chalk.bgCyan.black('▶ ' + line) :
-                        '  ' + line
-                );
-            });
-            console.log('');
-            console.log(chalk.bgCyan.black.bold('MOVE ↑↓=Move Enter=Confirm'));
-            break;
-        case Mode.Edit:
-            tasks.forEach((t, i) => {
-                const line = `[${t.status}] ${i === selected ? editBuffer + '_' : t.title}`;
-                console.log(
-                    (i === selected ? '▶ ' : '  ')
-                    + line
-                );
-            });
-            console.log('');
-            console.log(chalk.bgCyan.black.bold('EDIT Enter=Confirm Escape=Cancel'));
-            break;
-    }
-    process.stdout.write('\x1B[?25l');
-};
-
-readline.emitKeypressEvents(process.stdin);
-process.stdin.setRawMode(true);
-
-process.stdin.on('keypress', (str, key) => {
-    switch (mode) {
-        case Mode.Select:
-            if (key.name === 'up') selected = Math.max(0, selected - 1);
-            if (key.name === 'down') selected = Math.min(tasks.length - 1, selected + 1);
-            if (key.name === 'return') {
-                editBuffer = tasks[selected]!.title;
-                mode = Mode.Edit;
-            }
-            if (key.name === 'm') {
-                mode = Mode.Move;
-            }
-            if (key.name === 'q') {
-                console.clear();
-                process.exit(0);
-            }
-            break;
-        case Mode.Move:
-            if (key.name === 'up') {
-                if (selected == 0) break;
+modes[Mode.Select] = {
+    renderTasks: (t, selected) => {
+        const line = `[${t.status}] ${t.title}`;
+        if(t.status == ' ')
+            console.log(
+                (selected ? '▶ ' : '  ') + line
+            );
+        else {
+            console.log(
+                chalk.gray((selected ? '▶ ' : '  ') + line)
+            );
+        }
+    },
+    renderStatus: () => {
+        console.log(
+            chalk.bgCyan.black.bold('SELECT ↑↓=Cursor Shift+↑↓=Move Enter=Edit q=Quit')
+        );
+    },
+    onKeypress: (_, key: any) => {
+        if (key.name === 'up') {
+            if (key.shift) {
+                if (selected == 0) {
+                    tasks[selected]!.status = ' ';
+                    return;
+                }
                 const tmp = tasks[selected - 1]!;
-                tasks[selected]!.status = tmp.status;
+                if(tasks[selected]!.status != tmp.status) {
+                    tasks[selected]!.status = tmp.status;
+                    return;
+                }
                 tasks[selected - 1] = tasks[selected]!;
                 tasks[selected] = tmp;
                 selected = selected - 1;
+                return;
             }
-            if (key.name === 'down') {
-                if (selected == tasks.length - 1) break;
+            selected = Math.max(0, selected - 1);
+        }
+        if (key.name === 'down') {
+            if (key.shift) {
+                if (selected == tasks.length - 1) {
+                    tasks[selected]!.status = 'x';
+                    return;
+                }
                 const tmp = tasks[selected + 1]!;
+                if(tasks[selected]!.status != tmp.status) {
+                    tasks[selected]!.status = tmp.status;
+                    return;
+                }
                 tasks[selected]!.status = tmp.status;
                 tasks[selected + 1] = tasks[selected]!;
                 tasks[selected] = tmp;
                 selected = selected + 1;
+                return;
             }
-            if (key.name === 'return' || key.name === 'm') {
-                mode = Mode.Select;
-            }
-            if (key.name === 'q') {
-                console.clear();
-                process.exit(0);
-            }
-            break;
-        case Mode.Edit:
-            if (key.name === 'return') {
-                if (editBuffer === '') {
-                    tasks.splice(selected, 1);
-                    selected = Math.max(0, selected - 1);
-                    mode = Mode.Select;
-                    break;
-                }
-                tasks[selected]!.title = editBuffer;
-                tasks.splice(selected + 1, 0, {
-                    ...tasks[selected]!,
-                    title: ''
-                });
-                editBuffer = '';
-                selected++;
-            } else if (key.name === 'escape') {
-                mode = Mode.Select;
-            } else if (key.name === 'backspace') {
-                if (editBuffer === '') {
-                    tasks.splice(selected, 1);
-                    if (selected === 0) {
-                        mode = Mode.Select;
-                        break;
-                    }
-                    selected = Math.max(0, selected - 1);
-                    editBuffer = tasks[selected]!.title;
-                    break;
-                }
-                editBuffer = editBuffer.slice(0, -1);
-            } else if (!key.ctrl && !key.meta && str) {
-                editBuffer += str;
-            }
-            break;
+            selected = Math.min(tasks.length - 1, selected + 1);
+        }
+        if (key.name === 'return') {
+            LineEdit.init(tasks[selected]!.title, (result: string) => {
+                tasks[selected]!.title = result;
+                currentMode = Mode.Select;
+            });
+            currentMode = Mode.Edit;
+        }
+        if (key.name === 'q') {
+            console.clear();
+            process.exit(0);
+        }
     }
+};
+
+modes[Mode.Edit] = {
+    renderTasks: (t, selected) => {
+        const line = `[${t.status}] ${selected ? LineEdit.getState() : t.title}`;
+        console.log(
+            selected ? '▶ ' + line : chalk.gray('  ' + line)
+        );
+    },
+    renderStatus: LineEdit.renderStatus,
+    onKeypress: LineEdit.onKeypress
+};
+
+const render = () => {
+    const m = modes[currentMode]!;
+    console.clear();
+    let completed = false;
+    for(let i = 0; i < tasks.length; i++) {
+        const t = tasks[i]!;
+        if(i == 0 && t.status == ' ')
+            console.log("Tasks:");
+        else if(!completed && t.status == 'x') {
+            console.log(chalk.grey("Completed:"))
+            completed = true;
+        }
+        modes[currentMode]?.renderTasks(t, selected == i);
+    }
+    console.log('');
+    m.renderStatus();
+    process.stdout.write('\x1B[?25l');
+};
+
+
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    escapeCodeTimeout: 50
+});
+
+readline.emitKeypressEvents(process.stdin, rl);
+process.stdin.setRawMode(true);
+
+process.stdin.on('keypress', (str, key) => {
+    modes[currentMode]!.onKeypress(str, key);
     render();
 });
 
-process.on('exit', () => {
-    process.stdout.write('\x1B[?25h');
-});
-process.on('SIGINT', () => {
+function exitProcess() {
     process.stdout.write('\x1B[?25h');
     process.exit(0);
-});
-process.on('SIGTERM', () => {
-    process.stdout.write('\x1B[?25h');
-    process.exit(0);
-});
+}
+
+process.on('exit', exitProcess);
+process.on('SIGINT', exitProcess);
+process.on('SIGTERM', exitProcess);
 
 render();
