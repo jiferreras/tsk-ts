@@ -43,7 +43,7 @@ const selectMode: InteractiveMode = {
             'SELECT ↑↓=Cursor Shift+↑↓=Move Enter=Edit q=Quit'
         );
     },
-    onKeypress: function (e: KeyEvent): Action {
+    onKeypress: function (e: KeyEvent): Action | Action[] {
         const key = e.key;
         switch(key.name) {
             case 'up': {
@@ -68,11 +68,18 @@ const selectMode: InteractiveMode = {
                 return { action: ActionType.ToggleState };
             }
             case 'return': {
-                return { action: ActionType.InlineEdit };
+                return { action: ActionType.Edit };
+            }
+            case 'x': {
+                return { action: ActionType.DeleteTask, moveCursor: false };
             }
             case 'n': {
-                return { action: ActionType.NewTask };
+                return [
+                    { action: ActionType.NewTask, text: "" },
+                    { action: ActionType.Edit }
+                ];
             }
+            case 'escape':
             case 'q': {
                 return { action: ActionType.Exit };
             }

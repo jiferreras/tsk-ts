@@ -1,22 +1,125 @@
-const C = {
-    reset: '\x1B[0m',
-    bold: '\x1B[1m',
-    cyanBg: '\x1B[46m',
-    whiteBg: '\x1B[47m',
-    black: '\x1B[30m',
-    white: '\x1B[37m',
-    dim: '\x1B[2m',
-    hideCursor: '\x1B[?25l',
-    showCursor: '\x1B[?25h',
-    clear: '\x1B[2J\x1B[H',
-};
+import chalk from "chalk";
+import { type Action, type InteractiveMode, type KeyEvent, ActionType, EscapeC } from ".";
+import { TaskState, type Task } from "../lib";
+
+// TODO: Move to common
+const STATES_ICONS = [' ', 'x', 'n']
 
 let cursor = -1;
 let selStart = cursor;
 let selEnd = cursor;
-let initialText = 'UNITIALIZED';
-let text = 'UNITIALIZED'; 
-let exitCb: (result: string) => void;
+let text = 'UNITIALIZED';
+
+export function setState(
+    t: string,
+    c?: number,
+    sStart?: number,
+    sEnd?: number,
+) {
+    text = t;
+    cursor = c ?? t.length;
+    selStart = sStart ?? cursor;
+    selEnd   = sEnd   ?? cursor;
+}
+
+const editMode: InteractiveMode = {
+    render: function (tasks: Task[], selected: number): void {
+        if(tasks.length == 0) {
+            console.log("Something is wrong.");
+            return;
+        }
+
+        let completed = false;
+        for(let i = 0; i < tasks.length; i++) {
+            const t = tasks[i]!;
+            if(t.state == TaskState.Note) continue;
+            if(i == 0 && t.state == TaskState.Default)
+                console.log("Tasks:");
+            else if(!completed && t.state == TaskState.Completed) {
+                console.log(chalk.grey("Completed:"))
+                completed = true;
+            }
+            
+            const sel = selected == i;
+            const state = STATES_ICONS[t.state]!;
+            const line = `[${state}] ${sel ? getState() : t.text}`;
+            console.log(
+                sel ? '▶ ' + line : chalk.gray('  ' + line)
+            );
+        }
+    },
+    getStatus: function (): string {
+        const lhs = text.slice(0, selStart);
+        const rhs = text.slice(selEnd);
+        return `${EscapeC.cyanBg}EDIT lhs=${lhs} rhs=${rhs}${EscapeC.reset}`;
+    },
+    onKeypress: function (e: KeyEvent): Action | Action[] {
+        const key = e.key;
+        switch(key.name) {
+            case 'escape': {
+                return {
+                    action: ActionType.EditExit,
+                    text: text,
+                };
+            }
+            case 'return': {
+                if(text == "")
+                    return { action: ActionType.DeleteTask, moveCursor: true };
+
+                const lhs = text.slice(0, selStart);
+                const rhs = text.slice(selEnd);
+                if(lhs == "") {
+                    text = rhs;
+                    cursor = 0;
+                    return { action: ActionType.NoOp };
+                }
+                return {
+                    action: ActionType.EditNewline,
+                    lhs,
+                    rhs,
+                };
+            }
+            case 'backspace': {
+                if(selEnd != 0) break;
+                return {
+                    action: ActionType.EditMergePrev,
+                    text: text.slice(selEnd)
+                };
+            }
+        }
+        
+        const isCommand = doCommand(key.name, key.shift, key.ctrl);
+        const isStr = e.str && !key.ctrl && !key.meta;
+
+        if(!isCommand && isStr) {
+            text = text.slice(0, selStart) + e.str + text.slice(selEnd);
+            cursor = selStart = selEnd = cursor + e.str.length;
+        }
+
+        return { action: ActionType.NoOp };
+    }
+}
+
+export default editMode;
+
+function getState() {
+    const line = text + ' ';
+    const isSelection = selStart != selEnd;
+    return [
+        line.slice(0, (isSelection ? selStart : cursor)),
+        (isSelection ?
+            EscapeC.cyanBg :
+            EscapeC.whiteBg
+        ),
+        (isSelection ?
+            line.slice(selStart, selEnd) :
+            line.slice(cursor, cursor + 1)
+        ),
+        EscapeC.reset,
+        line.slice(isSelection ? selEnd : cursor + 1),
+        EscapeC.hideCursor,
+    ].join('');
+}
 
 function moveCursor(dir: number, ctrl: boolean) {
     let nPos = Math.max(
@@ -33,13 +136,13 @@ function moveCursor(dir: number, ctrl: boolean) {
     }
 
     if(dir > 0) nPos++;
-
+    
     return Math.max(
         0, Math.min(nPos, text.length)
     );
 }
 
-function onKey(key: string, shift: boolean, ctrl: boolean): boolean {
+function doCommand(key: string, shift: boolean, ctrl: boolean): boolean {
     if(ctrl) {
         switch (key) {
             case 'a': {
@@ -51,14 +154,6 @@ function onKey(key: string, shift: boolean, ctrl: boolean): boolean {
         }
     }
     switch (key) {
-        case 'escape': {
-            exitCb!(initialText);
-            return true;
-        }
-        case 'return': {
-            exitCb!(text);
-            return true;
-        }
         case 'left': {
             const nPos = moveCursor(-1, ctrl);
             if (!shift && selStart != selEnd) {
@@ -170,55 +265,4 @@ function onKey(key: string, shift: boolean, ctrl: boolean): boolean {
         }
     }
     return false;
-}
-
-function init(t: string, exitCallback: (result: string) => void) {
-    initialText = t;
-    text = t;
-    cursor = selStart = selEnd = t.length;
-    exitCb = exitCallback;
-}
-
-function getState() {
-    const line = text + ' ';
-    if (selStart == selEnd) {
-        return [
-            line.slice(0, cursor),
-            C.whiteBg,
-            line.slice(cursor, cursor + 1),
-            C.reset,
-            line.slice(cursor + 1),
-            C.hideCursor
-        ].join('');
-    }
-    else {
-        return [
-            line.slice(0, selStart),
-            C.cyanBg,
-            line.slice(selStart, selEnd),
-            C.reset,
-            line.slice(selEnd),
-            C.hideCursor
-        ].join('');
-    }
-}
-
-function onKeypress(str: string, key: any) {
-    const processKey = !onKey(key.name, key.shift, key.ctrl);
-    const enteredText = !key.ctrl && !key.meta && str;
-    if(processKey && enteredText) {
-        text = text.slice(0, selStart) + str + text.slice(selEnd);
-        cursor = selStart = selEnd = cursor + str.length;
-    }
-}
-
-function renderStatus() {
-    console.log(`${C.cyanBg}EDIT Escape=Cancel${C.reset}`);
-}
-
-export default {
-    init,
-    getState,
-    onKeypress,
-    renderStatus
 }

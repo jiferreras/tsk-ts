@@ -7,10 +7,17 @@ enum TaskState {
 }
 
 class Task {
-    id: string = "";
-    state: TaskState = TaskState.Default;
-    weight: number = 0;
-    text: string = "";
+    id: string;
+    state: TaskState;
+    weight: number;
+    text: string;
+
+    constructor(t: Partial<Task>) {
+        this.id     = t?.id     ?? Date.now().toString();
+        this.state  = t?.state  ?? TaskState.Default;
+        this.weight = t?.weight ?? 0;
+        this.text   = t?.text   ?? "";
+    }
 }
 
 function sortTasks(tArr: Task[]) {

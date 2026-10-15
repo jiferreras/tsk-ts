@@ -1,8 +1,9 @@
-import { File, TaskState, type Task } from "../lib";
+import { File, sortTasks, Task, TaskState } from "../lib";
 import SelectMode from "./selectMode";
+import EditMode, { setState } from "./editMode";
 import readline from 'readline';
 
-const C = {
+export const EscapeC = {
     reset: '\x1B[0m',
     bold: '\x1B[1m',
     cyanBg: '\x1B[46m',
@@ -28,15 +29,15 @@ export enum ActionType {
     MoveUp,
     MoveDown,
     ToggleState,
-    InlineEdit,
-    InlineEditCancel,
-    InlineEditNewline,
+    Edit,
+    EditExit,
+    EditNewline,
+    EditMergePrev,
     NewTask,
+    DeleteTask,
 }
 
-export interface Action
-// Simple Actions
-{
+export type Action = {
     action: 
         ActionType.NoOp |
         ActionType.Exit |
@@ -45,15 +46,24 @@ export interface Action
         ActionType.MoveUp |
         ActionType.MoveDown |
         ActionType.ToggleState |
-        ActionType.InlineEditCancel |
-        ActionType.NewTask |
-        ActionType.InlineEdit;
-}
+        ActionType.Edit;
+} | {
+    action: ActionType.NewTask | ActionType.EditExit | ActionType.EditMergePrev,
+    text: string
+} | {
+    action: ActionType.EditNewline,
+    lhs: string,
+    rhs: string
+} | {
+    action: ActionType.DeleteTask,
+    moveCursor: boolean
+};
+
 
 export interface InteractiveMode {
     render: (tasks: Task[], selected: number) => void;
     getStatus: () => string;
-    onKeypress: (e: KeyEvent) => Action;
+    onKeypress: (e: KeyEvent) => Action | Action[];
 };
 
 export interface KeyEvent {
@@ -66,15 +76,19 @@ export interface KeyEvent {
     }
 }
 
-const tasks: Task[] = [];
+let tasks: Task[] = [];
 let selected: number = -1;
 let currentMode: Mode = Mode.Select;
 let file: string;
 const modes = [
-    SelectMode
+    SelectMode,
+    EditMode
 ];
+const debug: string[] = []
 
 async function start(filepath: string) {
+    while (process.stdin.read() !== null) {}
+    process.stdin.pause();
     file = filepath;
     tasks.push(...await File.read(file));
     if(tasks.length > 0) selected = 0;
@@ -86,6 +100,9 @@ async function start(filepath: string) {
     });
     readline.emitKeypressEvents(process.stdin, rl);
     process.stdin.setRawMode(true);
+
+    process.stdin.resume();
+    
     process.stdin.on('keypress', (str, key) => {
         const a = modes[currentMode]!.onKeypress({
             str,
@@ -113,11 +130,23 @@ const render = () => {
     m.render(tasks, selected);
     console.log('');
     console.log(m.getStatus());
-    process.stdout.write(C.hideCursor);
+    process.stdout.write(EscapeC.hideCursor);
+    console.log(`selected: ${selected}`);
+    debug.slice(-5).forEach(s => console.log(s));
 };
 
-// TODO: accept arrays for action chains (new task -> edit)
-function doAction(a: Action) {
+function doAction(a: Action | Action[]) {
+    if(Array.isArray(a)) {
+        a.forEach(e => doAction(e));
+        return;
+    }
+    if(a.action != ActionType.NoOp) {
+        const line = `[${ActionType[a.action]}]: ${JSON.stringify({
+            ...a,
+            action: undefined
+        })}`;
+        debug.push(line);
+    }
     switch(a.action) {
         case ActionType.Exit: {
             File.write(file, tasks);
@@ -166,27 +195,85 @@ function doAction(a: Action) {
             return;
         }
         case ActionType.NewTask: {
-            // TODO: Make Task constructor
-            const newTask: Task = {
-                id: "",
-                state: TaskState.Default,
-                weight: 0,
-                text: ""
-            };
+            const newTask: Task = new Task({
+                weight: (() => {
+                    const t = tasks[selected];
+                    return t ? t.weight : 0;
+                })()
+            });
 
             if(tasks.length == 0) {
                 tasks.push(newTask);
                 selected = 0;
                 return;
             }
-            tasks.splice(selected, 0, newTask);
-            selected++;
+            tasks.splice(selected + 1, 0, newTask);
+            doAction({ action: ActionType.Down });
             return;
         }
-        case ActionType.ToggleState:
-        case ActionType.InlineEdit:
-        case ActionType.InlineEditCancel:
-            // TODO: implement
+        case ActionType.DeleteTask: {
+            tasks.splice(selected, 1);
+            if(a.moveCursor) doAction({ action: ActionType.Up });
+            currentMode = Mode.Select;
+            break;
+        }
+        case ActionType.ToggleState: {
+            const t = tasks[selected]!;
+            if(t.state == TaskState.Note) break;
+            const id = t.id;
+            t.state = (
+                t.state == TaskState.Default ?
+                TaskState.Completed :
+                TaskState.Default
+            );
+            tasks = sortTasks(tasks);
+            selected = tasks.findIndex(tt => tt.id == id);
+            break;
+        }
+        case ActionType.Edit: {
+            if(tasks.length == 0) {
+                doAction([
+                    { action: ActionType.NewTask, text: "" },
+                    { action: ActionType.Edit }
+                ]);
+                return;
+            }
+            currentMode = Mode.Edit;
+            const t = tasks[selected]!;
+            setState(t.text);
+            break;
+        }
+        case ActionType.EditExit: {
+            currentMode = Mode.Select;
+            if(a.text == "") {
+                tasks.splice(selected, 1);
+                doAction({ action: ActionType.Up });
+                return;
+            }
+            const t = tasks[selected]!;
+            t.text = a.text;
+            break;
+        }
+        case ActionType.EditNewline: {
+            tasks[selected]!.text = a.lhs;
+            tasks.splice(selected + 1, 0, new Task({
+                text: a.rhs,
+            }))
+            doAction({ action: ActionType.Down });
+            setState(a.rhs, 0);
+            break;
+        }
+        case ActionType.EditMergePrev: {
+            if(selected == 0) return;
+            tasks.splice(selected, 1);
+            doAction({ action: ActionType.Up });
+            const t = tasks[selected]!;
+            setState(
+                t.text + a.text,
+                t.text.length
+            );
+            break;
+        }
         case ActionType.NoOp:
         default:
             return;
@@ -199,6 +286,6 @@ export default {
 
 function exitProcess() {
     console.clear();
-    process.stdout.write(C.showCursor);
+    process.stdout.write(EscapeC.showCursor);
     process.exit(0);
 }
