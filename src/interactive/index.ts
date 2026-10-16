@@ -10,6 +10,7 @@ export const EscapeC = {
     whiteBg: '\x1B[47m',
     black: '\x1B[30m',
     white: '\x1B[37m',
+    green: '\x1B[32m',
     dim: '\x1B[2m',
     hideCursor: '\x1B[?25l',
     showCursor: '\x1B[?25h',
@@ -33,6 +34,8 @@ export enum ActionType {
     EditExit,
     EditNewline,
     EditMergePrev,
+    EditCursorUp,
+    EditCursorDown,
     NewTask,
     DeleteTask,
 }
@@ -48,8 +51,13 @@ export type Action = {
         ActionType.ToggleState |
         ActionType.Edit;
 } | {
-    action: ActionType.NewTask | ActionType.EditExit | ActionType.EditMergePrev,
-    text: string
+    action:
+        ActionType.NewTask |
+        ActionType.EditExit |
+        ActionType.EditMergePrev |
+        ActionType.EditCursorUp |
+        ActionType.EditCursorDown;
+    text: string;
 } | {
     action: ActionType.EditNewline,
     lhs: string,
@@ -62,7 +70,7 @@ export type Action = {
 
 export interface InteractiveMode {
     render: (tasks: Task[], selected: number) => void;
-    getStatus: () => string;
+    getStatus: (hasTasks: boolean) => string;
     onKeypress: (e: KeyEvent) => Action | Action[];
 };
 
@@ -87,9 +95,8 @@ const modes = [
 const debug: string[] = []
 
 async function start(filepath: string) {
-    while (process.stdin.read() !== null) {}
-    process.stdin.pause();
     file = filepath;
+    // TODO: Prompt user on missing file
     tasks.push(...await File.read(file));
     if(tasks.length > 0) selected = 0;
 
@@ -98,10 +105,10 @@ async function start(filepath: string) {
         output: process.stdout,
         escapeCodeTimeout: 50
     });
-    readline.emitKeypressEvents(process.stdin, rl);
-    process.stdin.setRawMode(true);
 
-    process.stdin.resume();
+    readline.emitKeypressEvents(process.stdin, rl);
+    if (process.stdin.isTTY)
+        process.stdin.setRawMode(true);
     
     process.stdin.on('keypress', (str, key) => {
         const a = modes[currentMode]!.onKeypress({
@@ -122,6 +129,17 @@ async function start(filepath: string) {
     process.on('exit', onExit);
     process.on('SIGINT', onExit);
     process.on('SIGTERM', onExit);
+    
+    render();
+}
+
+export function getRemainingCount(): number {
+    if(tasks.length == 0) return -1;
+    return tasks.findLastIndex(t => t.state == TaskState.Default) + 1;
+}
+
+export default {
+    start,
 }
 
 const render = () => {
@@ -129,10 +147,9 @@ const render = () => {
     console.clear();
     m.render(tasks, selected);
     console.log('');
-    console.log(m.getStatus());
+    console.log(m.getStatus(tasks.length > 0));
     process.stdout.write(EscapeC.hideCursor);
-    console.log(`selected: ${selected}`);
-    debug.slice(-5).forEach(s => console.log(s));
+    // debug.slice(-5).forEach(s => console.log(s));
 };
 
 function doAction(a: Action | Action[]) {
@@ -274,14 +291,24 @@ function doAction(a: Action | Action[]) {
             );
             break;
         }
+        case ActionType.EditCursorUp: {
+            if(tasks.length == 0) return;
+            tasks[selected]!.text = a.text;
+            selected = Math.max(0, selected - 1);
+            setState(tasks[selected]!.text, -1);
+            return;
+        }
+        case ActionType.EditCursorDown: {
+            if(tasks.length == 0) return;
+            tasks[selected]!.text = a.text;
+            selected = Math.min(tasks.length - 1, selected + 1);
+            setState(tasks[selected]!.text, -1);
+            return;
+        }
         case ActionType.NoOp:
         default:
             return;
     }
-}
-
-export default {
-    start,
 }
 
 function exitProcess() {

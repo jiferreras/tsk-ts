@@ -22,6 +22,7 @@ async function read(path: string) {
     
     try { file = await open(path); }
     catch (err) {
+        // TODO: Handle missing file
         console.log(`Couldn't load file ${path}: ${err}`);
         return tasks;
     }
@@ -125,7 +126,7 @@ function processHeader(s: string): TskFileHeader {
 }
 
 function processRow(s: string, h: TskFileHeader): Task | undefined {
-    const t = new Task();
+    const t = new Task({});
     const vals = s.split(SEP_CHAR);
 
     if(h.length != vals.length) {

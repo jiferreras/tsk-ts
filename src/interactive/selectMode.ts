@@ -1,15 +1,16 @@
 import chalk from "chalk";
-import { type InteractiveMode, type Action, ActionType, type KeyEvent } from ".";
+import type { InteractiveMode, Action, KeyEvent } from ".";
+import { ActionType, EscapeC, getRemainingCount } from ".";
 import { TaskState, type Task } from "../lib";
 
-const STATES_ICONS = [' ', 'x', 'n']
+const STATES_ICONS = [' ', chalk.green('✓'), 'n']
 
 const selectMode: InteractiveMode = {
     render: function (tasks: Task[], selected: number): void {
         console.clear();
         if(tasks.length == 0) {
-            console.log("Tasks:")
-            console.log(chalk.gray("  No tasks."));
+            console.log("Tasks")
+            console.log(chalk.gray("    No tasks."));
             return;
         }
 
@@ -18,9 +19,11 @@ const selectMode: InteractiveMode = {
             const t = tasks[i]!;
             if(t.state == TaskState.Note) continue;
             if(i == 0 && t.state == TaskState.Default)
-                console.log("Tasks:");
+                console.log(`Tasks (${getRemainingCount()}):`);
             else if(!completed && t.state == TaskState.Completed) {
-                console.log(chalk.grey("Completed:"))
+                console.log(
+                    chalk.grey(`Completed (${tasks.length - getRemainingCount()}):`)
+                );
                 completed = true;
             }
 
@@ -29,19 +32,30 @@ const selectMode: InteractiveMode = {
             const line = `[${state}] ${t.text}`;
             if(t.state == TaskState.Default)
                 console.log(
-                    (sel ? '▶ ' : '  ') + line
+                    (sel ? '  ▶ ' : '    ') + line
                 );
             else {
                 console.log(
-                    chalk.gray((sel ? '▶ ' : '  ') + line)
+                    chalk.gray((sel ? '  ▶ ' : '    ') + line)
                 );
             }
         }
     },
-    getStatus: function (): string {
-        return chalk.bgCyan.black.bold(
-            'SELECT ↑↓=Cursor Shift+↑↓=Move Enter=Edit q=Quit'
-        );
+    getStatus: function (hasTasks: boolean): string {
+        if(!hasTasks)
+            return chalk.gray([
+                `[${chalk.whiteBright('Enter')}]New task`,
+                `[${chalk.whiteBright('Esc')}/${chalk.whiteBright('Q')}]Quit`,
+                EscapeC.reset
+            ].join(' '));
+
+        return chalk.gray([
+            `[${chalk.whiteBright('↑↓')}]Select`,
+            `[${chalk.whiteBright('Shift')}+${chalk.whiteBright('↑↓')}]Move`,
+            `[${chalk.whiteBright('Enter')}]Edit`,
+            `[${chalk.whiteBright('X')}]Delete`,
+            `[${chalk.whiteBright('Esc')}/${chalk.whiteBright('Q')}]Quit`,
+        ].join(' '));
     },
     onKeypress: function (e: KeyEvent): Action | Action[] {
         const key = e.key;
@@ -72,12 +86,6 @@ const selectMode: InteractiveMode = {
             }
             case 'x': {
                 return { action: ActionType.DeleteTask, moveCursor: false };
-            }
-            case 'n': {
-                return [
-                    { action: ActionType.NewTask, text: "" },
-                    { action: ActionType.Edit }
-                ];
             }
             case 'escape':
             case 'q': {

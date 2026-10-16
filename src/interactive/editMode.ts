@@ -1,9 +1,9 @@
 import chalk from "chalk";
-import { type Action, type InteractiveMode, type KeyEvent, ActionType, EscapeC } from ".";
+import { type Action, type InteractiveMode, type KeyEvent, ActionType, EscapeC, getRemainingCount } from ".";
 import { TaskState, type Task } from "../lib";
 
 // TODO: Move to common
-const STATES_ICONS = [' ', 'x', 'n']
+const STATES_ICONS = [' ', '✓', 'n']
 
 let cursor = -1;
 let selStart = cursor;
@@ -17,7 +17,8 @@ export function setState(
     sEnd?: number,
 ) {
     text = t;
-    cursor = c ?? t.length;
+    if(c && c < 0) cursor = Math.min(t.length, cursor);
+    else cursor = c ?? t.length;
     selStart = sStart ?? cursor;
     selEnd   = sEnd   ?? cursor;
 }
@@ -33,29 +34,45 @@ const editMode: InteractiveMode = {
         for(let i = 0; i < tasks.length; i++) {
             const t = tasks[i]!;
             if(t.state == TaskState.Note) continue;
-            if(i == 0 && t.state == TaskState.Default)
-                console.log("Tasks:");
+            if(i == 0 && t.state == TaskState.Default) {
+                console.log(`Tasks (${getRemainingCount()}):`);
+            }
             else if(!completed && t.state == TaskState.Completed) {
-                console.log(chalk.grey("Completed:"))
+                console.log(
+                    chalk.grey(`Completed (${tasks.length - getRemainingCount()}):`)
+                );
                 completed = true;
             }
             
             const sel = selected == i;
             const state = STATES_ICONS[t.state]!;
-            const line = `[${state}] ${sel ? getState() : t.text}`;
+            const line = `[${
+                t.state != TaskState.Completed ?
+                state :
+                chalk.green(state)
+            }] ${sel ? getState() : t.text}`;
             console.log(
-                sel ? '▶ ' + line : chalk.gray('  ' + line)
+                sel ? '  ▶ ' + line : chalk.gray('    ' + line)
             );
         }
     },
     getStatus: function (): string {
-        const lhs = text.slice(0, selStart);
-        const rhs = text.slice(selEnd);
-        return `${EscapeC.cyanBg}EDIT lhs=${lhs} rhs=${rhs}${EscapeC.reset}`;
+        return chalk.gray([
+            `[${chalk.whiteBright('Esc')}]Accept`,
+            `[${chalk.whiteBright('Enter')}]${text == "" ? 'Cancel' : 'New line'}`,
+        ].join(' '));
     },
     onKeypress: function (e: KeyEvent): Action | Action[] {
         const key = e.key;
         switch(key.name) {
+            case 'up': {
+                if(key.shift) break;
+                return { action: ActionType.EditCursorUp, text };
+            }
+            case 'down': {
+                if(key.shift) break;
+                return { action: ActionType.EditCursorDown, text };
+            }
             case 'escape': {
                 return {
                     action: ActionType.EditExit,
